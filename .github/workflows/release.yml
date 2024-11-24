@@ -1,0 +1,144 @@
+name: Rust Build & Release
+
+on:
+    push:
+        branches: [main]
+
+jobs:
+    test:
+        name: Test
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Install Rust
+              uses: actions-rs/toolchain@v1
+              with:
+                  profile: minimal
+                  toolchain: stable
+                  override: true
+
+            - name: Cache dependencies
+              uses: actions/cache@v4
+              with:
+                  path: |
+                      ~/.cargo/registry
+                      ~/.cargo/git
+                      target
+                  key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+            - name: Run tests
+              run: cargo test
+
+    build:
+        name: Build
+        needs: test
+        runs-on: ubuntu-latest
+        strategy:
+            matrix:
+                target:
+                    - x86_64-unknown-linux-musl
+
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Cache dependencies
+              uses: actions/cache@v4
+              with:
+                  path: |
+                      ~/.cargo/registry
+                      ~/.cargo/git
+                      target
+                  key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+            - name: Build
+              uses: rust-build/rust-build.action@v1.4.5
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              with:
+                  RUSTTARGET: ${{ matrix.target }}
+                  TOOLCHAIN_VERSION: stable
+                  UPLOAD_MODE: none
+
+            # 列出当前目录内容
+            - name: List current directory
+              run: |
+                  echo "Current directory contents:"
+                  ls -la
+
+            # 列出整个构建目录结构
+            - name: List build directory structure
+              run: |
+                  echo "Build directory structure:"
+                  find . -type f -name "*" -not -path "*/\.*"
+
+            # 添加代码检查
+            - name: Run clippy
+              run: |
+                  rustup component add clippy
+                  cargo clippy -- -D warnings
+
+            # 添加代码格式检查
+            - name: Check formatting
+              run: |
+                  rustup component add rustfmt
+                  cargo fmt -- --check
+
+            # 上传构建产物
+            - name: Upload artifact
+              uses: actions/upload-artifact@v4
+              with:
+                  name: binary
+                  path: output/rust-upload-service # 更新后的路径
+
+    release:
+        name: Release
+        needs: build
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+
+            # 获取版本号从 Cargo.toml
+            - name: Get version
+              id: get_version
+              run: |
+                  echo "version=$(grep '^version = ' Cargo.toml | cut -d '"' -f2)" >> $GITHUB_OUTPUT
+
+            - name: Create Release
+              id: create_release
+              uses: actions/create-release@v1
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              with:
+                  tag_name: v${{ steps.get_version.outputs.version }}
+                  release_name: Release v${{ steps.get_version.outputs.version }}
+                  draft: false
+                  prerelease: false
+                  body: |
+                      ## What's Changed
+                      ${{ github.event.head_commit.message }}
+
+                      For full changes, see the [commit history](https://github.com/${{ github.repository }}/commits/${{ github.sha }})
+
+            - name: Download Artifacts
+              uses: actions/download-artifact@v4
+              with:
+                  name: binary
+                  path: artifacts
+
+            # 列出下载的构建产物
+            - name: List downloaded artifacts
+              run: |
+                  echo "Downloaded artifacts:"
+                  ls -la artifacts/
+
+            # 上传 Linux 构建
+            - name: Upload Linux Release Asset
+              uses: actions/upload-release-asset@v1
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              with:
+                  upload_url: ${{ steps.create_release.outputs.upload_url }}
+                  asset_path: ./artifacts/rust-upload-service
+                  asset_name: rust-upload-service-linux-x86_64
+                  asset_content_type: application/octet-stream
