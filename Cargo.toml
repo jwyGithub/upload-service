@@ -1,6 +1,6 @@
 [package]
 name = "rust-upload-service"
-version = "0.1.0"
+version = "0.0.1"
 edition = "2021"
 
 [dependencies]
@@ -13,3 +13,4 @@ openssl = "0.10.68"
 serde = { version = "1.0.215", features = ["derive"] }
 rustls = "0.20.0"
 rustls-pemfile = "1.0.0"
+serde_json = "1.0.133"

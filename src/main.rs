@@ -5,6 +5,7 @@ use log::{debug, error, info, warn};
 use rustls::{Certificate, PrivateKey, ServerConfig};
 use rustls_pemfile::{certs, pkcs8_private_keys};
 use serde::Deserialize;
+use serde_json::{self, Map, Value};
 use std::{fs::File, io::BufReader, io::Write, path::Path};
 
 const MAX_FILE_SIZE: usize = 30 * 1024 * 1024; // 30MB
@@ -128,7 +129,13 @@ async fn upload(mut payload: Multipart, config: web::Data<Config>) -> Result<Htt
         "File upload completed successfully. Total size: {} bytes",
         total_size
     );
-    Ok(HttpResponse::Ok().body("File uploaded successfully"))
+    Ok(HttpResponse::Ok().json({
+        let mut response = Map::new();
+        response.insert("total_size".to_string(), Value::Number(total_size.into()));
+        response.insert("file_count".to_string(), Value::Number(file_count.into()));
+        response.insert("code".to_string(), Value::Number(200.into()));
+        Value::Object(response)
+    }))
 }
 
 struct MultipartGuard;
